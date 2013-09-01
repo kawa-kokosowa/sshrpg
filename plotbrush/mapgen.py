@@ -2,7 +2,6 @@ import random
 import math
 from config import ini
 import sqlcanvas
-import database
 import brush
 
 

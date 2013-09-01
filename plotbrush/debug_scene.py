@@ -1,7 +1,6 @@
 import sqlcanvas
 from display import fuck
 import mapgen
-import database
 import brush
 from timeout import timeout
 from config import ini
