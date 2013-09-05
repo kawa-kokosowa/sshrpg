@@ -8,132 +8,199 @@ import brush
 # CONSTANTS/CONFIG ############################################################
 
 
-TILE_TYPES = ini('tiles')
-TILE_TYPES[None] = TILE_TYPES['default']
+TILES = ini('tiles')
 
+
+def parse_tiles(tiles, scene_default_tile):
+    """Needs to go in config module! Then only arg will be default_tile"""
+
+    new_tiles = {}
+    default_tile = tiles['default']
+    scene_default_tile = tiles[scene_default_tile]
+    default_tile.update(scene_default_tile)
+    new_tiles[None] = default_tile
+
+    for tile_name, settings in tiles.items():
+        tile = default_tile.copy()
+        tile.update(settings)
+        new_tiles[tile_name] = tile
+
+    return new_tiles
+        
 
 # TERRAIN #####################################################################
 
 
-def generate_lake(canvas, scene, seed=None, max_blobs=0, radius=None, lake_i=0):
-    lakes = scene['lakes']
-    max_radius = int(lakes['max_radius'])  # blob size
-    min_radius = int(lakes['min_radius'])  # blob size
-    min_corner_radius = int(lakes['min_corner_radius'])  # percent
-    max_corner_radius = int(lakes['max_corner_radius'])  # percent
-    corner_radius = random.randint(min_corner_radius, max_corner_radius)
+def random_percent_of(total, min_percent, max_percent):
+    percent = random.randint(min_percent, max_percent)
+    return int(total * (percent / 100.0))
 
-    if radius is None:
-       radius = random.randint(min_radius, max_radius)
 
-    corner_radius = int(radius * float('0.' + str(corner_radius)))
-    threshold = int(lakes.get('shore_threshold', 125))
+# belongs in brush?
+def generate_blob(canvas, tiles, **kwargs):
+    """
+
+    seed_index
+    this helps us name subsets, mostly
+
+    seed
+    so you can begin from a previous seed
+
+    tile_filter (FUNC(canvas, blob))
+    before we update the canvas with blob data, you can run it through a filter
+    and return a set. arg 1 is canvas, arg 2 is the blob area set.
+
+    max_radius, min_radius (INT)
+    radius length in percentage of map size
+
+    min_corner_radius, max_corner_radius (INT)
+    the radius of each corner, as a percentage of the blob size
+
+    threshold (INT; 0-255)
+    the score a tile must meet, or be removed
+    
+    tile_type (STR)
+    the tile you want to create blobs of
+
+    subset_prefix (STR)
+    for prefixing the indexes of the subset dictionary
+
+    min_blobs, max_blobs (INT)
+
+    blobs_left (INT)
+    overrides min_/max_blobs
+
+
+    blob_index (INT)
+    helps with subset naming
+
+    """
+
+    # canvas data
     coords = canvas.cache['coords']
     area = canvas.cache['area']
+    max_y = canvas.cache['max_y']
 
-    # place the seed, grow the lake
-    seed = list(coords)[random.randint(0, area - 1)]
-    lake = brush.expand((seed,), radius, coords)
-    parameter = brush.parameter(lake)
+    # configuration ----------------------------------------------------------
+    # blobs
+    blob_index = int(kwargs['blob_index'])
+    blobs_left = kwargs.get('blobs_left', None)
 
-    # perlin noise!
-    step_thresh = threshold / radius
-    remove = []
+    if blobs_left is None:
+        min_blobs = int(kwargs['minimum'])
+        max_blobs = int(kwargs['maximum'])
+        blobs_left = random.randint(min_blobs, max_blobs)
+    else:
+        blobs_left = int(kwargs.get('blobs_left', 0))
 
-    for coord in coords:
-        score = random.randint(0, 250)
-        dist = distance(coord, seed)
-        distance_penalty = dist * (radius / (dist or 1))
+    # seeds
+    seed = kwargs.get('seed', None) or random.choice(list(coords))
 
-        if score < threshold + distance_penalty:
-            remove.append(coord)
+    # radius
+    max_radius = int(kwargs['max_radius'])
+    min_radius = int(kwargs['min_radius'])
+    radius = random_percent_of(max_y, min_radius, max_radius)
 
-    remove = set(remove)
-    lake = lake.difference(remove)
-    lake = lake.union(brush.expand((seed,), int(radius * 0.90), coords))
-    remove = []
+    # corners
+    max_corner_radius = int(kwargs['max_corner_radius'])
+    min_corner_radius = int(kwargs['min_corner_radius'])
+    corner_radius = lambda: random_percent_of(
+                                              radius,
+                                              min_corner_radius,
+                                              max_corner_radius
+                                             )
 
-    # round corners
-    penalty_math = int(250 / len(parameter)) or 1
-    penalty = 0
-    corners = brush.corners(lake)
+    # misc.
+    threshold = radius
+    subset_prefix = kwargs['subset_prefix']
+    tile_type = kwargs['tile_type']
+
+    # place the seed, grow the blob -------------------------------------------
+    blob = brush.expand((seed,), int(radius * 0.75), coords)
+    parameter = brush.expand((seed,), radius - 1, coords)
+    parameter = blob.difference(parameter)
+    corners = brush.corners(blob)
+    corners_area = set()
+
+    # insert a couple "seeds" to have random areas on param that expand for removal
 
     for corner in corners:
-        corner = brush.expand((corner,), corner_radius, coords)
+        corner_area = brush.expand((corner,), corner_radius(), coords)
+        corners_area = corners_area.union(corner_area)
 
-        for coord in corner:
-            score = random.randint(0, 250)
-            dist = distance(coord, seed)
-            dist_penalty = dist * (radius / (dist or 1)) + penalty
-
-            if score < threshold + distance_penalty:
-                remove.append(coord)
-                penalty += penalty_math
-
-            penalty = 0
-
-    remove = set(remove)
-    lake = lake.difference(remove)
-    possible_seeds = brush.expand((seed,), int(radius * 0.50), coords)
-    lake = lake.union(possible_seeds)
-    # remove random from parameter
+    # perlin noise!
     remove = []
-    penalty = 0
+    removable = parameter.union(corners_area)
+    corner_penalty = int(radius * 0.25)
+    parameter_penalty = int(radius * 0.1)
 
-    for coord in parameter:
-        score = random.randint(0, 250)
-        dist = distance(coord, seed)
-        dist_penalty = dist * (radius / (dist or 1)) + penalty
+    for coord in removable:
+        score = random.randint(0, radius) + distance(coord, seed)
 
-        if score < threshold + distance_penalty:
+        if coord in corners_area:
+            score += corner_penalty
+
+        if coord in parameter:
+            score += parameter_penalty
+
+        if score > threshold:
             remove.append(coord)
-            penalty += penalty_math
-
-        penalty = 0
-
-    if max_blobs:
-        possible_seeds = list(possible_seeds)
-        max_possible_seeds_index = len(possible_seeds) - 1
-
-        while True:
-            new_seed = possible_seeds[random.randint(0, max_possible_seeds_index)]
-            dist = distance(new_seed, seed)
-
-            if dist > math.sqrt(radius * 0.25) or dist > math.sqrt(radius * 0.15):
-                continue
-            else:
-                break
-
-        max_blobs -= 1
-        #radius -= min([int(radius * 0.75), min_radius])
-        lake_blob = generate_lake(
-                                  canvas,
-                                  scene,
-                                  new_seed,
-                                  max_blobs=max_blobs,
-                                  radius=radius
-                                 )
 
     remove = set(remove)
-    lake = lake.difference(remove)
-    canvas.subset('lake_%d' % lake_i, lake, tile_type='water')
+    blob = blob.difference(remove)
+    blob = blob.union(brush.expand((seed,), int(radius * 0.5) or 1, coords))
+    remove = []
+
+
+    if blobs_left:
+        possible_seeds = brush.expand((seed,), int(radius * 0.75) or 1, coords)
+        possible_seeds = possible_seeds.difference(blob)
+        possible_seeds = list(possible_seeds)
+        new_seed = random.choice(possible_seeds)
+        new_kwargs = kwargs.copy()
+        new_kwargs['seed'] = new_seed
+        new_kwargs['blobs_left'] = blobs_left - 1
+        sub_blob = generate_blob(canvas, tiles, **new_kwargs)
+
+    subset_name = '%s_%s' % (subset_prefix, blob_index)
+    canvas.subset(subset_name, blob, tile_type=tile_type)
     return seed
 
 
-def generate_lakes(canvas, scene):
-    lakes = scene['lakes'] 
-    # for when I do more complicated formations of lakes
-    min_lakes = int(lakes['minimum'])
-    max_lakes = int(lakes['maximum'])
-    max_blobs = int(lakes['max_blobs'])
-    min_blobs = int(lakes['min_blobs'])
-    blobs = random.randint(min_blobs, max_blobs)
-    number_of_lakes = random.randint(min_lakes, max_lakes)
+def generate_blobs(canvas, scene, key, tiles):
+    blobs = scene[key] 
+    blobs['subset_prefix'] = key
 
-    for lake in xrange(number_of_lakes):
-        generate_lake(canvas, scene, max_blobs=blobs, lake_i=lake)
+    # this is wrong, because we want seeds as a percent
+    # of the map
+    min_blobs = int(blobs['minimum'])
+    max_blobs = int(blobs['maximum'])
+    blobs_count = random.randint(min_blobs, max_blobs)
 
-    return number_of_lakes
+    for blob_i in xrange(blobs_count):
+        blobs['blob_index'] = blob_i
+        generate_blob(canvas, tiles, **blobs)
+
+    return blobs_count
+
+
+def generate_lakes(canvas, scene, tiles):
+    return generate_blobs(canvas, scene, 'lakes', tiles)
+
+
+def generate_border(canvas, scene, tiles, blob):
+    """Right now this is specific to generating tree trunks.
+
+    I want to generate stuff like beaches in the future.
+
+    """
+
+    pass
+
+
+def generate_forests(canvas, scene, tiles):
+    # use tile_filter to update canvas to have stumps
+    return generate_blobs(canvas, scene, 'forests', tiles)
 
 
 # ROOMS #######################################################################
@@ -160,7 +227,7 @@ def viable(length_min, length_max, value_min, value_max):
     return start, end
  
 
-def generate_house(room_name, canvas, scene):
+def generate_house(room_name, canvas, scene, tiles):
     houses = scene['houses']
 
     # info we need...
@@ -192,7 +259,7 @@ def generate_house(room_name, canvas, scene):
         return None, None
 
     for plot in padded_area:
-        if TILE_TYPES[canvas[plot]['tile_type']]['impassable'] == 'true':
+        if tiles[canvas[plot]['tile_type']]['impassable'] == 'true':
             return None, None
 
     room_name = 'room_%s' % room_name
@@ -203,7 +270,7 @@ def generate_house(room_name, canvas, scene):
     return room_name, doors
 
  
-def generate_houses(canvas, scene):
+def generate_houses(canvas, scene, tiles):
     houses = scene['houses']
     rooms_max = int(houses['build_max'])
     rooms_min = int(houses['build_min'])
@@ -216,39 +283,42 @@ def generate_houses(canvas, scene):
     houses_to_generate = random.randint(rooms_min, rooms_max)
 
     while houses_to_generate:
-        room_name, doors = generate_house(houses_to_generate, canvas, scene)
+        room_name, doors = generate_house(houses_to_generate, canvas, scene, tiles)
         if room_name is None: continue
         total_door_coords[room_name] = doors
         houses_to_generate -= 1
 
     # path generation!
     if enable_paths:
-        generate_paths(canvas, total_door_coords)
+        generate_paths(canvas, tiles, total_door_coords)
 
     return houses_to_generate
 
 
-# generate scene
-def generate_scene(canvas, scene, atop_water=False):
+def generate_scene(canvas, scene):
     scene = ini('scenes/' + scene)
+    tiles = parse_tiles(TILES, scene['general']['default_tile'])
     has_section = lambda x: scene.get(x, None)
 
     if has_section('decorations'):
-        generate_decorations(canvas, scene)
+        generate_decorations(canvas, scene, tiles)
+
+    if has_section('forests'):
+        generate_forests(canvas, scene, tiles)
 
     if has_section('rivers'):
-        generate_rivers(canvas, scene)
+        generate_rivers(canvas, scene, tiles)
 
     if has_section('lakes'):
-        generate_lakes(canvas, scene)
+        generate_lakes(canvas, scene, tiles)
  
     if has_section('houses'):
-        generate_houses(canvas, scene)
+        generate_houses(canvas, scene, tiles)
 
     return None
 
 
-def generate_rivers(canvas, scene):
+def generate_rivers(canvas, scene, tiles):
     """A currently shitty river generator."""
 
     rivers = scene['rivers']
@@ -282,14 +352,14 @@ def generate_rivers(canvas, scene):
         if river_length < river_min_length or river_length > river_max_length:
             continue
 
-        river = astar(canvas, start_point, end_point)
+        river = astar(canvas, tiles, start_point, end_point)
         canvas.subset('river_%d' % rivers_generated, river, tile_type='water')
         rivers_generated += 1
 
     return rivers_generated
 
 
-def generate_decorations(canvas, scene):
+def generate_decorations(canvas, scene, tiles):
     decorations = scene['decorations']
     tiles = decorations['tiles'].split(',')
 
@@ -319,7 +389,7 @@ def generate_decorations(canvas, scene):
     return percent
 
 
-def generate_paths(canvas, total_door_coords):
+def generate_paths(canvas, tiles, total_door_coords):
     """Generate paths from one door to another via A*
 
     total_door_coords should be sql select * from coord_defs where
@@ -348,7 +418,7 @@ def generate_paths(canvas, total_door_coords):
                 # we could cycle through doors until it doesn't overlap with
                 # path.
                 closest_door = min(door_distances, key=door_distances.get)
-                path = astar(canvas, door, closest_door)
+                path = astar(canvas, tiles, door, closest_door)
                 if path is None: continue
 
                 # check if path in any rooms, if it is, then remove
@@ -463,7 +533,7 @@ def reconstruct_path(came_from, current_node):
         return (current_node,)
 
 
-def astar(canvas, start, goal, strict=False):
+def astar(canvas, tiles, start, goal, strict=False):
     coordinates = canvas.cache['coords']
     closedset = set()  # set of nodes already evaluated
     openset = set([start])  # set of tentative nodes to be evaluated
@@ -498,13 +568,18 @@ def astar(canvas, start, goal, strict=False):
 
             # needs to reference tile_type's impassable value
             tile_type = canvas[neighbor]['tile_type']
-            tile_data = TILE_TYPES[tile_type]
+            tile_data = tiles[tile_type]
            
             if tile_type == 'water':
                 tentative_g_score += 8
 
             # i allow rivers to be passed for paths, but what about houses
             # being placed over rivers?!
+            try:
+                tile_data['impassable']
+            except:
+                raise Exception(tile_data)
+
             if tile_type != 'water' and tile_data['impassable'] == 'true':
                 closedset.add(neighbor)
                 continue

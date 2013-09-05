@@ -287,15 +287,9 @@ class Canvas(object):
     def get_area(self):
         """Get canvas area via meta table!"""
 
-        sql = 'SELECT area FROM canvas_meta'
-        self.cursor.execute(sql)
-        return self.cursor.fetchone()[0]
+        return self.meta('area')
 
     def update(self, coords, **kwargs):
-        # construct the SET KEY=? part of the SQL statement
-        debug = kwargs.pop('debug', None)
-
-        # construct the WHERE KEY=? part of the sql statement
         for coord in coords:
             x, y = coord
             set_fields = dict_params(',', **kwargs)
@@ -307,7 +301,6 @@ class Canvas(object):
                   WHERE x=:x and y=:y
                   ''' % set_fields
             self.cursor.execute(sql, params)
-            #raise Exception((sql, kwargs, set_fields, set_fields_params))
             sql = '''select * from coord_defs where x=? and y=?'''
             self.cursor.execute(sql, coord)
 

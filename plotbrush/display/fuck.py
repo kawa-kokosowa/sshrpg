@@ -14,9 +14,8 @@ from config import ini
 
 # reprocess tile types...
 # should we grab from table?
-TILE_TYPES = ini('tiles')
-TILE_TYPES[None] = TILE_TYPES['default']
-
+TILES = ini('tiles')
+DEFAULT_TILE = TILES['default']
 
 # text effects
 EFFECTS = {
@@ -28,53 +27,43 @@ EFFECTS = {
            'underline': curses.A_UNDERLINE
           }
 
-
-# color definitions
 COLORS = {
           'black': curses.COLOR_BLACK,
-          'red': curses.COLOR_RED,
-          'green': curses.COLOR_GREEN,
-          'yellow': curses.COLOR_YELLOW,
           'blue': curses.COLOR_BLUE,
-          'magenta': curses.COLOR_MAGENTA,
           'cyan': curses.COLOR_CYAN,
+          'green': curses.COLOR_GREEN,
+          'magenta': curses.COLOR_MAGENTA,
+          'red': curses.COLOR_RED,
           'white': curses.COLOR_WHITE,
-          'green': curses.COLOR_GREEN
+          'yellow': curses.COLOR_YELLOW,
          }
-
-
-# tile themes
-# for table in db?
-THEMES = ini('themes')
-THEMES[None] = THEMES['default']
 
 
 # draw utils ##################################################################
 
 
-def probe():
-    """Probe various settings/terminal configuraiton."""
-
-    screen = curses.initscr()
-    y, x  = screen.getmaxyx()
-    curses.endwin()
-    return x, y
-
-
-def draw_map(screen, canvas):
+def draw_map(screen, canvas, scene):
+    default_tile = DEFAULT_TILE.copy()
+    default_tile.update(TILES[scene['general']['default_tile']])
     existing_pairs = {}  # (foreground, background)
     pair_index = 1
 
     for coord_def in canvas.iter_defs():
+        tile_type = coord_def['tile_type']
+
+        if tile_type is None:
+            tile_data = default_tile
+        else:
+            tile_data = default_tile.copy()
+            tile_data.update(TILES[tile_type])
+
         subset_key = coord_def['subset_key']
         x, y = coord_def['x'], coord_def['y']
-        tile_type = coord_def['tile_type']
-        tile_data = TILE_TYPES[tile_type]
+
         character = tile_data['character']
-        theme = THEMES[tile_data['theme']]
-        foreground = COLORS[theme['foreground']]
-        background = COLORS[theme['background']]
-        special = theme.get('special', None)
+        foreground = COLORS[tile_data['foreground']]
+        background = COLORS[tile_data['background']]
+        special = tile_data.get('special', None)
 
         if special:
             effects = [EFFECTS[e] for e in special.split(',')]
@@ -111,19 +100,56 @@ def draw_map(screen, canvas):
     return screen
 
 
-def key_map( screen, key_mapping ):
-    pass
-
-
-def test_draw(canvas):
+def init_screen():
     screen = curses.initscr()
+    y, x = screen.getmaxyx()
 
     curses.nocbreak()
     screen.keypad(0)
     curses.echo()
     curses.start_color()
+    curses.curs_set(0)
+    
+    return screen, (x, y)
 
-    screen = draw_map(screen, canvas)
+
+# it'd be real easy to add color now!
+# start index at 7, I think
+# colors.ini
+
+
+def top_panel(screen, *args, **kwargs):
+    """
+    curses.newwin(begin_y, begin_x)
+    curses.newwin(nlines, ncols, begin_y, begin_x)
+    """
+
+    curses.init_pair(99, curses.COLOR_BLACK, curses.COLOR_WHITE)
+    color_pair = curses.color_pair(99)
+    lines = len(args) + 3  # for padding!
+    y, x = screen.getmaxyx()
+
+    # blank space
+    blank_line = ' ' * (len(max(args, key=len)) + 2)
+
+    for i in xrange(1, lines):
+        screen.addstr(i, 2, blank_line, color_pair)
+
+    # write one arg per line
+    for i, line in enumerate(args, start=2):
+        screen.addstr(i, 3, line, color_pair)
+
+    return screen
+
+
+def test_draw(screen, canvas, scene):
+    # first get scene data
+    author = scene['meta']['author']
+    title = scene['meta']['title']
+
+    # draw!
+    screen = draw_map(screen, canvas, scene)
+    screen = top_panel(screen, author, title)
     screen.refresh()
     curses.endwin()
 
