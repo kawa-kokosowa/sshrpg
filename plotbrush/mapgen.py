@@ -40,6 +40,9 @@ def random_percent_of(total, min_percent, max_percent):
 def generate_blob(canvas, tiles, **kwargs):
     """
 
+    tile_filter -- FUNC
+    filter out tiles before creating subset
+
     seed_index
     this helps us name subsets, mostly
 
@@ -56,9 +59,6 @@ def generate_blob(canvas, tiles, **kwargs):
     min_corner_radius, max_corner_radius (INT)
     the radius of each corner, as a percentage of the blob size
 
-    threshold (INT; 0-255)
-    the score a tile must meet, or be removed
-    
     tile_type (STR)
     the tile you want to create blobs of
 
@@ -82,6 +82,10 @@ def generate_blob(canvas, tiles, **kwargs):
     max_y = canvas.cache['max_y']
 
     # configuration ----------------------------------------------------------
+    # filter data
+    tile_filter = kwargs['tile_filter']
+    tile_filter_args = kwargs['tile_filter_args']
+
     # blobs
     blob_index = int(kwargs['blob_index'])
     blobs_left = kwargs.get('blobs_left', None)
@@ -93,7 +97,6 @@ def generate_blob(canvas, tiles, **kwargs):
     else:
         blobs_left = int(kwargs.get('blobs_left', 0))
 
-    # seeds
     seed = kwargs.get('seed', None) or random.choice(list(coords))
 
     # radius
@@ -162,14 +165,28 @@ def generate_blob(canvas, tiles, **kwargs):
         new_kwargs['blobs_left'] = blobs_left - 1
         sub_blob = generate_blob(canvas, tiles, **new_kwargs)
 
+    # do we need to filter?
+    if tile_filter:
+        args = tile_filter_args or (canvas, scene)
+        args = args + (blob,)
+
+        try:
+            remove = tile_filter(*args)
+        except:
+            raise Exception(tile_filter_args)
+
+        blob = blob.difference(remove)
+
     subset_name = '%s_%s' % (subset_prefix, blob_index)
     canvas.subset(subset_name, blob, tile_type=tile_type)
-    return seed
+    return blob
 
 
-def generate_blobs(canvas, scene, key, tiles):
+def generate_blobs(canvas, scene, key, tiles, tile_filter=None, tile_filter_args=None):
     blobs = scene[key] 
     blobs['subset_prefix'] = key
+    blobs['tile_filter'] = tile_filter
+    blobs['tile_filter_args'] = tile_filter_args
 
     # this is wrong, because we want seeds as a percent
     # of the map
@@ -188,19 +205,68 @@ def generate_lakes(canvas, scene, tiles):
     return generate_blobs(canvas, scene, 'lakes', tiles)
 
 
-def generate_border(canvas, scene, tiles, blob):
+# belongs in brush?
+def generate_border(canvas, tiles, blob, x=None, y=None, tile_type=None, threshold=None):
     """Right now this is specific to generating tree trunks.
 
     I want to generate stuff like beaches in the future.
 
     """
 
-    pass
+    # think of it as a drop shadow
+    move_x = x or 0
+    move_y = y or 0
+    bad_tiles = ('water',)
 
+    new_blob = []
+
+    for coord in blob:
+        x, y = coord
+        x += move_x
+        y += move_y
+        new_coord = (x, y)
+        coord_data = canvas[new_coord]
+
+        if coord_data is None or coord_data['tile_type'] in bad_tiles:
+            continue
+
+        if threshold and random.randint(0, 100) >= threshold:
+            continue
+
+        new_blob.append((x, y))
+
+    new_blob = set(new_blob)
+    border = new_blob.difference(blob)
+    # needs to be .subset in the future
+    canvas.update(border, tile_type=tile_type)
+    return border
+
+
+def generate_trunks(canvas, tiles):
+    tree_tops = canvas.match(tile_type='tree_top')
+    generate_border(canvas, tiles, tree_tops, y=1, tile_type='tree_trunk')
+    return None
+
+
+def generate_shores(canvas, scene, tiles):
+    water = canvas.match(tile_type='water')
+
+    for i in xrange(-1, 2):
+        if i:
+            generate_border(canvas, tiles, water, x=i, y=i, tile_type='shore', threshold=80)
+
+    return None
+
+
+def perlin_omission(omission_chance, possible):
+    omit = [c for c in possible if random.randint(0, 100) >= omission_chance]
+    return set(omit)
+ 
 
 def generate_forests(canvas, scene, tiles):
-    # use tile_filter to update canvas to have stumps
-    return generate_blobs(canvas, scene, 'forests', tiles)
+    generate_blobs(canvas, scene, 'forests', tiles, tile_filter=perlin_omission, tile_filter_args=(50,))
+    #generate_trunks(canvas, tiles)
+    return None
 
 
 # ROOMS #######################################################################
@@ -298,22 +364,24 @@ def generate_houses(canvas, scene, tiles):
 def generate_scene(canvas, scene):
     scene = ini('scenes/' + scene)
     tiles = parse_tiles(TILES, scene['general']['default_tile'])
+    generate_order = scene['general']['generate_order'].split(',')
     has_section = lambda x: scene.get(x, None)
 
-    if has_section('decorations'):
-        generate_decorations(canvas, scene, tiles)
+    # define the generators
+    generators = {
+                  'decorations': generate_decorations,
+                  'forests': generate_forests,
+                  'rivers': generate_rivers,
+                  'lakes': generate_lakes,
+                  'houses': generate_houses,
+                  'shores': generate_shores
+                 }
 
-    if has_section('forests'):
-        generate_forests(canvas, scene, tiles)
-
-    if has_section('rivers'):
-        generate_rivers(canvas, scene, tiles)
-
-    if has_section('lakes'):
-        generate_lakes(canvas, scene, tiles)
- 
-    if has_section('houses'):
-        generate_houses(canvas, scene, tiles)
+    for generator in generate_order:
+        if has_section(generator):
+            generators[generator](canvas, scene, tiles)
+        else:
+            raise Exception('generator does not exist: ' + generator)
 
     return None
 

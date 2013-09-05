@@ -371,13 +371,17 @@ class Canvas(object):
         sql = 'SELECT *  FROM coord_defs WHERE x=? AND y=?'
         self.cursor.execute(sql, key)
         coord_def = self.cursor.fetchone()
-        return {
-                'x': coord_def[0],
-                'y': coord_def[1],
 
-                'tile_type': coord_def[2],
-                'subset_key': coord_def[3],
-               }
+        try:
+            return {
+                    'x': coord_def[0],
+                    'y': coord_def[1],
+
+                    'tile_type': coord_def[2],
+                    'subset_key': coord_def[3],
+                   }
+        except TypeError:
+            return None
 
 
 # CONSTRUCTORS ################################################################
