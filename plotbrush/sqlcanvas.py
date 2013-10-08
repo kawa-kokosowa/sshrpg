@@ -14,7 +14,7 @@ import random
 import math
 from collections import OrderedDict
 from itertools import product
-from config import ini
+from utils.config import ini
 import sqlite3 as sqlite
 
 

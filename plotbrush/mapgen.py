@@ -1,6 +1,6 @@
 import random
 import math
-from config import ini
+from utils.config import ini
 import sqlcanvas
 import brush
 
@@ -383,7 +383,7 @@ def generate_scene(canvas, scene):
         else:
             raise Exception('generator does not exist: ' + generator)
 
-    return None
+    return scene
 
 
 def generate_rivers(canvas, scene, tiles):

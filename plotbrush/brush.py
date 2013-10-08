@@ -10,7 +10,7 @@ import random
 import math
 from collections import OrderedDict
 from itertools import product
-from config import ini
+from utils.config import ini
 
 
 # CONSTANTS/CONFIG ############################################################
