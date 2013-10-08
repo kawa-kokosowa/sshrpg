@@ -250,10 +250,11 @@ def generate_trunks(canvas, tiles):
 
 def generate_shores(canvas, scene, tiles):
     water = canvas.match(tile_type='water')
+    strength = int(scene['shores']['strength'])
 
     for i in xrange(-1, 2):
         if i:
-            generate_border(canvas, tiles, water, x=i, y=i, tile_type='shore', threshold=80)
+            generate_border(canvas, tiles, water, x=i, y=i, tile_type='shore', threshold=strength)
 
     return None
 
