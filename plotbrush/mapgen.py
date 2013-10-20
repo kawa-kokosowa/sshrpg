@@ -91,8 +91,8 @@ def generate_blob(canvas, tiles, **kwargs):
     blobs_left = kwargs.get('blobs_left', None)
 
     if blobs_left is None:
-        min_blobs = int(kwargs['minimum'])
-        max_blobs = int(kwargs['maximum'])
+        min_blobs = int(kwargs['spawn_min'])
+        max_blobs = int(kwargs['spawn_max'])
         blobs_left = random.randint(min_blobs, max_blobs)
     else:
         blobs_left = int(kwargs.get('blobs_left', 0))
@@ -170,10 +170,7 @@ def generate_blob(canvas, tiles, **kwargs):
         args = tile_filter_args or (canvas, scene)
         args = args + (blob,)
 
-        try:
-            remove = tile_filter(*args)
-        except:
-            raise Exception(tile_filter_args)
+        remove = tile_filter(*args)
 
         blob = blob.difference(remove)
 
@@ -190,8 +187,9 @@ def generate_blobs(canvas, scene, key, tiles, tile_filter=None, tile_filter_args
 
     # this is wrong, because we want seeds as a percent
     # of the map
-    min_blobs = int(blobs['minimum'])
-    max_blobs = int(blobs['maximum'])
+    min_blobs = int(blobs['spawn_min'])
+    max_blobs = int(blobs['spawn_max'])
+    #blobs_count = random_percent_of(canvas.cache['area'], min_blobs, max_blobs)
     blobs_count = random.randint(min_blobs, max_blobs)
 
     for blob_i in xrange(blobs_count):
@@ -264,8 +262,15 @@ def perlin_omission(omission_chance, possible):
     return set(omit)
  
 
+def forest_omission(canvas, omission_chance, possible):
+    # this boggles my brain; are coords not the coords I think they are?
+    spray = perlin_omission(omission_chance, possible)
+    bad_coords = canvas.match(tile_type='water')
+    return spray.difference(bad_coords)
+
+
 def generate_forests(canvas, scene, tiles):
-    generate_blobs(canvas, scene, 'forests', tiles, tile_filter=perlin_omission, tile_filter_args=(50,))
+    generate_blobs(canvas, scene, 'forests', tiles, tile_filter=forest_omission, tile_filter_args=(canvas,50,))
     #generate_trunks(canvas, tiles)
     return None
 
@@ -339,8 +344,8 @@ def generate_house(room_name, canvas, scene, tiles):
  
 def generate_houses(canvas, scene, tiles):
     houses = scene['houses']
-    rooms_max = int(houses['build_max'])
-    rooms_min = int(houses['build_min'])
+    rooms_max = int(houses['spawn_max'])
+    rooms_min = int(houses['spawn_min'])
     enable_paths = int(houses.get('paths', 0))
 
     # we're going to map a door per door witha path
@@ -379,8 +384,10 @@ def generate_scene(canvas, scene):
                  }
 
     for generator in generate_order:
+
         if has_section(generator):
             generators[generator](canvas, scene, tiles)
+
         else:
             raise Exception('generator does not exist: ' + generator)
 
@@ -405,6 +412,7 @@ def generate_rivers(canvas, scene, tiles):
 
     find_point = lambda: parameter[random.randint(0, possible_plots - 1)]
     rivers_generated = 0
+    threshold = canvas.cache['max_x'] / 20
 
     while True:
         # don't escape until a long enough river has been generated!
@@ -415,6 +423,15 @@ def generate_rivers(canvas, scene, tiles):
 
         start_point = find_point()
         end_point = find_point()
+
+        # no straight rivers, they look bad!
+        start_x, start_y = start_point
+        end_x, end_y = end_point
+
+        if abs(start_x - end_x) < threshold or abs(start_y - end_y) < threshold:
+            continue
+
+        # i
         river_length = distance(start_point, end_point)
 
         # check if river is long/short enough

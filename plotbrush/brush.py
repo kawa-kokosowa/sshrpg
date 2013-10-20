@@ -31,12 +31,15 @@ DATABASE_TABLE = SETTINGS['database']['map_table']
 
 
 def corners(area):
+    """Returns corners of given area."""
+
     top_left = min(area)
     bottom_right = max(area)
     min_x, min_y = top_left
     max_x, max_y = bottom_right
     top_right = (max_x, min_y)
     bottom_left = (min_x, max_y)
+
     return set([top_left, bottom_right, top_right, bottom_left])
 
 
@@ -46,6 +49,7 @@ def xrange_corners(bottom_right, top_left=None):
 
     x = xrange(min_x, max_x + 1)
     y = xrange(min_y, max_y + 1)
+
     return x, y
 
 
@@ -175,7 +179,12 @@ def random_rectangle( min_x, max_x, y_min, y_max ):
 
 
 def expand(area, padding=1, boundary_check=None):
-    """Need to rename variables."""
+    """Need to rename variables.
+    
+    padding -- # of coords from original area to expand
+    boundary_check -- new coords must consist of these coords
+    
+    """
 
     dist_min = min(area)
     dist_max = max(area)
