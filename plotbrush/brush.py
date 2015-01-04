@@ -1,5 +1,5 @@
 """brushes: Brushes for painting cartesian coordinate canvas
-Anthony Lemmer
+Lillian Lemmer
 
 Principles of set theory at play!
 

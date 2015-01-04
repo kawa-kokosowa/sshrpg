@@ -1,5 +1,5 @@
 """canvas: Cartesian Coordinate Map System
-Anthony Lemmer
+Lillian Lemmer
 
 Principles of set theory at play!
 
